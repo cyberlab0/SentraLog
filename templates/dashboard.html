@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SentraLog Enterprise XDR</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body { background-color: #020617; color: #f8fafc; overflow: hidden; }
+        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
+        .nav-item:hover, .nav-item.active { background: rgba(59, 130, 246, 0.1); border-right: 3px solid #3b82f6; }
+        .terminal-scroll::-webkit-scrollbar { width: 6px; }
+        .terminal-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        .terminal-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        #threat-map { height: 100%; width: 100%; border-radius: 0.5rem; background: #0f172a; z-index: 1;}
+        .eli5-active .tech-text { display: none; }
+        .eli5-active .simple-text { display: block !important; }
+        .simple-text { display: none; color: #34d399; font-weight: 500;}
+        
+        .timeline-container::before {
+            content: ''; position: absolute; top: 0; bottom: 0; left: 16px; width: 2px; background: #334155;
+        }
+        .timeline-item { position: relative; padding-left: 40px; margin-bottom: 20px; }
+        .timeline-dot { position: absolute; left: 11px; top: 4px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #020617; }
+    </style>
+</head>
+<body class="flex h-screen font-sans antialiased">
+
+    <!-- Sidebar -->
+    <aside class="w-64 glass flex flex-col h-full border-r border-slate-800 relative z-20 shadow-2xl">
+        <div class="p-6 flex items-center justify-between border-b border-slate-800">
+            <div class="flex items-center gap-3">
+                <div class="h-8 w-8 rounded-full bg-gradient-to-tr from-blue-500 to-purple-600 flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.5)]">
+                    <svg class="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                </div>
+                <h1 class="text-lg font-bold tracking-wider">Sentra<span class="text-blue-500">Log</span> <span class="text-[10px] bg-red-600 px-1 rounded ml-1">XDR</span></h1>
+            </div>
+        </div>
+        
+        <div class="px-6 py-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
+            <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">ELI5 Analyst Mode</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="eli5-toggle" class="sr-only peer" onchange="toggleELI5()">
+                <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-green-500"></div>
+            </label>
+        </div>
+        
+        <nav class="flex-1 py-4 overflow-y-auto terminal-scroll flex flex-col gap-1">
+            <div class="px-6 py-2 text-xs font-bold text-slate-500 uppercase">Global Analytics</div>
+            <button onclick="switchTab('map')" class="nav-item active w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Live Threat Map</button>
+            <button onclick="switchTab('timeline')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Incident Timeline</button>
+            <button onclick="switchTab('identity')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg> Identity & UEBA</button>
+            
+            <div class="px-6 py-2 mt-4 text-xs font-bold text-slate-500 uppercase">Detection & SOAR</div>
+            <button onclick="switchTab('scanner')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg> Threat Intel Scanner</button>
+            <button onclick="switchTab('sandbox')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg> Detonation Sandbox</button>
+            <button onclick="switchTab('deception')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"></path></svg> Honeypots & Decoys</button>
+            
+            <div class="px-6 py-2 mt-4 text-xs font-bold text-slate-500 uppercase">Administration</div>
+            <button onclick="switchTab('workspace')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"></path></svg> Virtual Workspace</button>
+            <button onclick="switchTab('playbooks')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg> SOC Playbooks</button>
+            {% if role == 'Super Admin' %}
+            <button onclick="switchTab('orgs')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg> Multi-Tenant Orgs</button>
+            <button onclick="switchTab('gatekeeper')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg> Access Gatekeeper</button>
+            <button onclick="switchTab('audit')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg> Global Audit Logs</button>
+            {% endif %}
+        </nav>
+        
+        <div class="p-6 border-t border-slate-800">
+            <div class="flex items-center gap-3 mb-3">
+                <div class="w-8 h-8 rounded bg-blue-900/50 flex items-center justify-center text-blue-400 font-bold border border-blue-500/30">{{ username[:2].upper() }}</div>
+                <div><div class="text-sm font-bold text-white">{{ username }}</div><div class="text-xs text-green-500">{{ role }}</div></div>
+            </div>
+            <a href="/logout" class="block w-full py-1.5 text-center text-xs font-semibold text-slate-400 bg-slate-800/50 hover:bg-slate-700 rounded">Logout</a>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 relative overflow-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+CjxwYXRoIGQ9Ik0wIDBoNDB2NDBIMHoiIGZpbGw9Im5vbmUiLz4KPHBhdGggZD0iTTAgMGw0MCA0ME00MCAwbC00MCA0MCIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMDMpIiBzdHJva2Utd2lkdGg9IjEiLz4KPC9zdmc+')] bg-repeat" id="main-container">
+        
+        <!-- Header -->
+        <header class="h-14 glass border-b border-slate-800 flex items-center justify-between px-6 relative z-10">
+            <div class="flex items-center gap-4">
+                <div class="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
+                <span class="text-xs font-mono text-green-400 tracking-widest">REAL-TIME ENGINE ACTIVE</span>
+            </div>
+            <div class="text-xs font-mono text-slate-400" id="clock">00:00:00 UTC</div>
+        </header>
+
+        <div class="p-6 h-[calc(100vh-3.5rem)] overflow-y-auto terminal-scroll relative z-0">
+            
+            <!-- WORLD MAP TAB -->
+            <div id="tab-map" class="tab-content block h-full flex flex-col">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold flex items-center gap-2">Global Threat Analytics</h2>
+                    <div class="flex gap-2">
+                        <span class="px-3 py-1 bg-red-900/50 text-red-400 text-xs rounded border border-red-500/30 font-bold">Risk Score: 14/100 (Safe)</span>
+                    </div>
+                </div>
+                <div class="flex-1 glass p-2 rounded-xl border border-slate-700/50 shadow-2xl relative">
+                    <div id="threat-map"></div>
+                    <div class="absolute bottom-6 left-6 z-[1000] bg-black/80 p-4 rounded border border-slate-700">
+                        <h4 class="text-xs font-bold text-slate-300 mb-2 uppercase">Live Vectors</h4>
+                        <div id="map-logs" class="text-xs font-mono space-y-1 text-slate-400 h-24 overflow-y-hidden"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TIMELINE TAB -->
+            <div id="tab-timeline" class="tab-content hidden h-full">
+                <div class="max-w-4xl mx-auto h-full flex flex-col">
+                    <h2 class="text-2xl font-bold mb-2">Incident Narrative View</h2>
+                    <p class="text-slate-400 mb-8 text-sm">Translates raw, unstructured logs into a chronological attack story.</p>
+                    
+                    <div class="glass p-8 rounded-xl border border-slate-700/50 flex-1 overflow-y-auto terminal-scroll relative">
+                        <div class="timeline-container relative" id="timeline-box">
+                            <!-- Injected via JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- IDENTITY / UEBA TAB -->
+            <div id="tab-identity" class="tab-content hidden h-full">
+                <div class="max-w-5xl mx-auto">
+                    <h2 class="text-2xl font-bold mb-2 text-yellow-500">User Entity Behavior Analytics (UEBA)</h2>
+                    <p class="text-slate-400 mb-6 text-sm">Zero Trust identity monitoring. Flags impossible travel, abnormal access, and privilege escalation.</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                        <div class="glass p-6 rounded-xl border border-slate-700/50 border-l-4 border-l-red-500">
+                            <div class="text-3xl font-bold text-white">2</div>
+                            <div class="text-slate-400 text-sm mt-1">Compromised Accounts</div>
+                        </div>
+                        <div class="glass p-6 rounded-xl border border-slate-700/50 border-l-4 border-l-yellow-500">
+                            <div class="text-3xl font-bold text-white">14</div>
+                            <div class="text-slate-400 text-sm mt-1">Anomalous Behaviors (24h)</div>
+                        </div>
+                        <div class="glass p-6 rounded-xl border border-slate-700/50 border-l-4 border-l-green-500">
+                            <div class="text-3xl font-bold text-white">99.8%</div>
+                            <div class="text-slate-400 text-sm mt-1">Identity Verification Rate</div>
+                        </div>
+                    </div>
+
+                    <div class="glass rounded-xl border border-slate-700/50 overflow-hidden bg-black/50">
+                        <table class="w-full text-left text-sm text-slate-300">
+                            <thead class="text-xs uppercase bg-slate-800/80 text-slate-400">
+                                <tr><th class="px-6 py-4">User</th><th class="px-6 py-4">Risk Score</th><th class="px-6 py-4">Behavior Event</th><th class="px-6 py-4">SOAR Action Taken</th></tr>
+                            </thead>
+                            <tbody id="ueba-table" class="divide-y divide-slate-800/50 font-mono text-xs"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DECEPTION TAB -->
+            <div id="tab-deception" class="tab-content hidden h-full">
+                <div class="max-w-5xl mx-auto">
+                    <h2 class="text-2xl font-bold mb-2 text-green-500">Active Deception Network</h2>
+                    <p class="text-slate-400 mb-6 text-sm">Honeypots and decoy databases. Any interaction with these nodes is a guaranteed malicious act.</p>
+                    
+                    <div class="glass rounded-xl border border-slate-700/50 overflow-hidden bg-black/50">
+                        <table class="w-full text-left text-sm text-slate-300">
+                            <thead class="text-xs uppercase bg-slate-800/80 text-slate-400">
+                                <tr><th class="px-6 py-4">Decoy Node</th><th class="px-6 py-4">Attacker IP</th><th class="px-6 py-4">Action Intercepted</th><th class="px-6 py-4">Containment</th></tr>
+                            </thead>
+                            <tbody id="honeypot-table" class="divide-y divide-slate-800/50 font-mono text-xs"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCANNER TAB (SOAR Additions) -->
+            <div id="tab-scanner" class="tab-content hidden h-full">
+                <div class="max-w-4xl mx-auto">
+                    <h2 class="text-2xl font-bold mb-2 flex items-center gap-3 text-red-400">Threat Intel & SOAR Containment</h2>
+                    <p class="text-slate-400 mb-8 text-sm">Scan IPs and execute automated containment playbooks instantly.</p>
+                    
+                    <div class="glass p-8 rounded-xl border border-slate-700/50 shadow-2xl">
+                        <div class="flex gap-4 mb-6">
+                            <input type="text" id="ip-input" class="flex-1 bg-slate-900 border border-slate-700 rounded px-4 py-3 text-white font-mono" placeholder="IP Address">
+                            <button onclick="scanIP()" class="bg-red-600 hover:bg-red-500 text-white font-semibold px-8 py-3 rounded shadow-lg">Scan & Analyze</button>
+                        </div>
+                        <div id="scan-results" class="hidden bg-slate-900/80 rounded-lg p-6 border border-slate-700"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SANDBOX TAB -->
+            <div id="tab-sandbox" class="tab-content hidden h-full">
+                <div class="max-w-4xl mx-auto">
+                    <h2 class="text-2xl font-bold mb-2 text-orange-400">Malware Detonation Sandbox</h2>
+                    <p class="text-slate-400 mb-8 text-sm">Execute suspicious URLs in an isolated hypervisor. Monitors file drops and registry hooks.</p>
+                    <div class="glass p-6 rounded-xl border border-slate-700/50 mb-6">
+                        <input type="url" id="url-input" class="w-full bg-slate-900 border border-slate-700 rounded px-4 py-3 text-white font-mono mb-4" placeholder="URL to detonate">
+                        <button onclick="detonateURL()" class="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold px-8 py-3 rounded shadow-lg">Detonate Safely</button>
+                    </div>
+                    <div class="glass p-6 rounded-xl border border-slate-700/50 bg-black/60 relative overflow-hidden h-64">
+                        <h3 class="text-sm font-mono text-slate-400 mb-2">Sandbox Output</h3>
+                        <div id="vm-terminal" class="font-mono text-xs text-green-400 space-y-2 overflow-y-auto terminal-scroll h-full pb-8"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ORGS TAB -->
+            <div id="tab-orgs" class="tab-content hidden h-full">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold">Tenant Organizations</h2>
+                </div>
+                <div class="glass rounded-xl border border-slate-700/50 overflow-hidden flex flex-col bg-black/50">
+                    <table class="w-full text-left text-sm text-slate-300">
+                        <thead class="text-xs uppercase bg-slate-800/80 text-slate-400"><tr><th class="px-6 py-4">Org Name</th><th class="px-6 py-4">Server IP</th><th class="px-6 py-4">Status</th></tr></thead>
+                        <tbody id="org-table-body" class="divide-y divide-slate-800/50"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- GATEKEEPER TAB -->
+            <div id="tab-gatekeeper" class="tab-content hidden h-full">
+                <div class="max-w-5xl mx-auto h-full flex flex-col">
+                    <h2 class="text-2xl font-bold mb-2 text-yellow-500 flex items-center gap-2"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg> Super Admin Gatekeeper</h2>
+                    <p class="text-slate-400 mb-6 text-sm">Intercept all logins. Approve new users and manage Emergency Keys.</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                        <div class="glass p-6 rounded-xl border border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.1)]">
+                            <h3 class="text-lg font-bold text-white mb-4">Pending User Approvals</h3>
+                            <div id="gatekeeper-pending" class="space-y-3"></div>
+                        </div>
+                        <div class="glass p-6 rounded-xl border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.1)]">
+                            <h3 class="text-lg font-bold text-white mb-4">Active Emergency Bypass Keys</h3>
+                            <div id="gatekeeper-keys" class="space-y-3"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIRTUAL WORKSPACE TAB -->
+            <div id="tab-workspace" class="tab-content hidden h-full">
+                <div class="max-w-6xl mx-auto flex flex-col h-full gap-6">
+                    <div>
+                        <h2 class="text-2xl font-bold text-green-400 flex items-center gap-2"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"></path></svg> Virtual Analyst Workspace & Sandbox</h2>
+                        <p class="text-slate-400 text-sm">Secure isolated environment for detonating emails and links.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1">
+                        <!-- Email Connection -->
+                        <div class="glass p-6 rounded-xl border border-slate-700/50 flex flex-col">
+                            <h3 class="font-bold text-white mb-4 border-b border-slate-800 pb-2">Email Integration</h3>
+                            <p class="text-xs text-slate-400 mb-4">Connect organizational emails to route incoming mail through the Sandbox Detonator before it reaches the user's inbox.</p>
+                            
+                            <div class="space-y-3 mb-6">
+                                <div><label class="text-xs font-bold text-slate-500 uppercase">IMAP/Exchange Server</label><input type="text" class="w-full bg-black/50 border border-slate-700 rounded px-3 py-2 text-white text-sm" placeholder="imap.gmail.com"></div>
+                                <div><label class="text-xs font-bold text-slate-500 uppercase">Target Email Address</label><input type="text" id="ws-email" class="w-full bg-black/50 border border-slate-700 rounded px-3 py-2 text-white text-sm" placeholder="soc@company.com"></div>
+                                <button onclick="connectEmail()" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 rounded text-sm transition-colors">Connect Mailbox</button>
+                            </div>
+                            
+                            <div id="email-status" class="hidden mt-auto bg-green-900/30 border border-green-500 p-3 rounded text-green-400 text-xs font-bold flex items-center gap-2">
+                                <span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span>
+                                Monitoring Inbox...
+                            </div>
+                        </div>
+
+                        <!-- Sandbox Console -->
+                        <div class="lg:col-span-2 glass rounded-xl border border-blue-500/30 flex flex-col overflow-hidden shadow-[0_0_20px_rgba(59,130,246,0.1)]">
+                            <div class="bg-slate-900 border-b border-slate-700 p-3 flex justify-between items-center">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                                    <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                                    <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                                    <span class="ml-2 text-xs font-bold text-slate-400 uppercase tracking-widest">Cloud Detonation Sandbox (urlscan.io / VT)</span>
+                                </div>
+                                <button onclick="simulateIncoming()" id="btn-simulate" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded disabled:opacity-50">Test Incoming Payload</button>
+                            </div>
+                            <div class="flex-1 bg-black p-4 font-mono text-sm overflow-y-auto" id="sandbox-console">
+                                <div class="text-slate-500 mb-2">> SentraLog OS v2.1.4 Initialized...</div>
+                                <div class="text-slate-500 mb-2">> Isolated environment ready. Awaiting network payloads.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="tab-playbooks" class="tab-content hidden h-full">
+                <div class="max-w-5xl mx-auto">
+                    <h2 class="text-2xl font-bold mb-2 text-purple-400">Incident Response Playbooks</h2>
+                    <p class="text-slate-400 mb-6 text-sm">Standard Operating Procedures for all SOC levels.</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="glass p-6 rounded-xl border border-slate-700/50">
+                            <h3 class="font-bold text-white mb-2">SOC1: Triage & Initial Analysis</h3>
+                            <ul class="list-disc list-inside text-sm text-slate-400 space-y-2">
+                                <li>Verify alert against Threat Intel.</li>
+                                <li>Check user behavior (UEBA).</li>
+                                <li>If confirmed false positive: Close.</li>
+                                <li>If suspicious: Escalate to SOC2.</li>
+                            </ul>
+                        </div>
+                        <div class="glass p-6 rounded-xl border border-slate-700/50">
+                            <h3 class="font-bold text-white mb-2">SOC2: Deep Investigation</h3>
+                            <ul class="list-disc list-inside text-sm text-slate-400 space-y-2">
+                                <li>Analyze PCAP and Sandbox logs.</li>
+                                <li>Determine scope of breach.</li>
+                                <li>Execute SOAR auto-containment.</li>
+                                <li>If critical infrastructure hit: Escalate to Manager.</li>
+                            </ul>
+                        </div>
+                        <div class="glass p-6 rounded-xl border border-slate-700/50">
+                            <h3 class="font-bold text-white mb-2">SOC Manager: Breach Response</h3>
+                            <ul class="list-disc list-inside text-sm text-slate-400 space-y-2">
+                                <li>Initiate disaster recovery.</li>
+                                <li>Notify legal and stakeholders.</li>
+                                <li>Revoke global credentials.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AUDIT TAB -->
+            <div id="tab-audit" class="tab-content hidden h-full">
+                <div class="max-w-6xl mx-auto h-full flex flex-col">
+                    <h2 class="text-2xl font-bold mb-2 text-blue-400">Global Audit & Location Tracking</h2>
+                    <p class="text-slate-400 mb-6 text-sm">Tracks live locations, IPs, and actions of all users within the dashboard.</p>
+                    
+                    <div class="glass flex-1 rounded-xl border border-slate-700/50 overflow-hidden bg-black/50 flex flex-col">
+                        <table class="w-full text-left text-sm text-slate-300">
+                            <thead class="text-xs uppercase bg-slate-800/80 text-slate-400">
+                                <tr><th class="px-6 py-4 w-32">Timestamp</th><th class="px-6 py-4">Operator</th><th class="px-6 py-4">Action Taken</th><th class="px-6 py-4">IP Address</th><th class="px-6 py-4">Live Location</th></tr>
+                            </thead>
+                            <tbody id="audit-table-body" class="divide-y divide-slate-800/50 font-mono text-xs overflow-y-auto block h-[500px]" style="display: table-row-group;"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        setInterval(() => { document.getElementById('clock').innerText = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC'; }, 1000);
+
+        function toggleELI5() {
+            const isChecked = document.getElementById('eli5-toggle').checked;
+            const container = document.getElementById('main-container');
+            if(isChecked) container.classList.add('eli5-active');
+            else container.classList.remove('eli5-active');
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-' + tabId).classList.remove('hidden');
+            event.currentTarget.classList.add('active');
+            if(tabId === 'map') setTimeout(() => map.invalidateSize(), 100);
+            if(tabId === 'timeline') loadTimeline();
+            if(tabId === 'identity') loadUEBA();
+            if(tabId === 'deception') loadHoneypots();
+            if(tabId === 'orgs') loadOrganizations();
+            if(tabId === 'gatekeeper' || tabId === 'audit') loadGatekeeper();
+        }
+
+        // --- Leaflet Map Analytics ---
+        const map = L.map('threat-map', { zoomControl: false, attributionControl: false }).setView([20, 0], 2);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 20 }).addTo(map);
+
+        async function pollMapData() {
+            try {
+                const res = await fetch('/api/analytics/map_data');
+                const data = await res.json();
+                const mapLogs = document.getElementById('map-logs');
+                data.forEach(attack => {
+                    const color = attack.severity === 'critical' ? '#ef4444' : '#f59e0b';
+                    
+                    // Source circle
+                    L.circleMarker([attack.lat, attack.lng], { radius: 6, color: color, fillColor: color, fillOpacity: 0.8 }).addTo(map)
+                     .bindPopup(`Source: ${attack.source}<br>Type: <span class="tech-text">${attack.type}</span><span class="simple-text">Bad connection attempt</span>`);
+                    
+                    // Line
+                    const latlngs = [[attack.lat, attack.lng], [attack.target_lat, attack.target_lng]];
+                    L.polyline(latlngs, {color: color, weight: 2, opacity: 0.6, dashArray: '5, 10', dashOffset: '0'}).addTo(map);
+
+                    const log = document.createElement('div');
+                    log.innerHTML = `<span class="text-[${color}]">[ALERT]</span> Attack from ${attack.source} <span class="tech-text">(${attack.type})</span><span class="simple-text">(Blocked attack)</span>`;
+                    mapLogs.prepend(log);
+                    if(mapLogs.children.length > 5) mapLogs.lastChild.remove();
+                });
+            } catch(e){}
+        }
+        setInterval(pollMapData, 4000);
+        setTimeout(pollMapData, 500);
+
+        // --- Timeline Narrative ---
+        async function loadTimeline() {
+            const res = await fetch('/api/analytics/timeline');
+            const data = await res.json();
+            const box = document.getElementById('timeline-box');
+            box.innerHTML = '';
+            
+            data.forEach((evt, idx) => {
+                const color = evt.type === 'containment' ? 'bg-green-500' : (evt.type === 'exploit' ? 'bg-red-500' : 'bg-blue-500');
+                box.innerHTML += `
+                    <div class="timeline-item">
+                        <div class="timeline-dot ${color}"></div>
+                        <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700">
+                            <span class="text-xs text-slate-500 font-mono mb-1 block">${evt.time}</span>
+                            <h4 class="text-md font-bold text-white mb-1">${evt.title}</h4>
+                            <p class="text-sm text-slate-400 tech-text">${evt.desc}</p>
+                            <p class="text-sm text-green-400 simple-text font-medium bg-green-900/20 p-2 rounded border border-green-900/50 mt-2">💡 ELI5: ${evt.eli5}</p>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        // --- UEBA ---
+        async function loadUEBA() {
+            const res = await fetch('/api/analytics/ueba');
+            const data = await res.json();
+            const tbody = document.getElementById('ueba-table');
+            tbody.innerHTML = '';
+            data.forEach(evt => {
+                const color = evt.risk_score > 80 ? 'text-red-500' : (evt.risk_score > 40 ? 'text-yellow-500' : 'text-green-500');
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-800">
+                        <td class="px-6 py-4 text-white">${evt.user}</td>
+                        <td class="px-6 py-4 font-bold ${color}">${evt.risk_score}/100</td>
+                        <td class="px-6 py-4 text-slate-300 tech-text">${evt.event}: ${evt.details}</td>
+                        <td class="px-6 py-4 text-slate-300 simple-text text-green-400">Suspicious account activity detected.</td>
+                        <td class="px-6 py-4"><span class="px-2 py-1 bg-slate-700 rounded text-xs">${evt.action}</span></td>
+                    </tr>
+                `;
+            });
+        }
+
+        // --- Honeypot ---
+        async function loadHoneypots() {
+            const res = await fetch('/api/analytics/honeypot');
+            const data = await res.json();
+            const tbody = document.getElementById('honeypot-table');
+            tbody.innerHTML = '';
+            data.forEach(evt => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-800">
+                        <td class="px-6 py-4 text-green-400 font-bold">${evt.node}</td>
+                        <td class="px-6 py-4 text-blue-400">${evt.ip}</td>
+                        <td class="px-6 py-4 text-red-400 tech-text">${evt.action}</td>
+                        <td class="px-6 py-4 text-green-400 simple-text">Attacker trapped in fake system.</td>
+                        <td class="px-6 py-4"><button onclick="blockIP('${evt.ip}')" class="bg-red-600 px-3 py-1 rounded text-white text-xs hover:bg-red-500">Auto-Block</button></td>
+                    </tr>
+                `;
+            });
+        }
+
+        // --- SOAR Block IP ---
+        async function blockIP(ip) {
+            try {
+                await fetch('/api/soar/block', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip}) });
+                alert(`SOAR Playbook Executed: IP ${ip} blocked at edge firewall.`);
+            } catch(e) { alert("Containment failed."); }
+        }
+
+        // --- Intel Scanner ---
+        async function scanIP() {
+            const ip = document.getElementById('ip-input').value;
+            const resDiv = document.getElementById('scan-results');
+            resDiv.classList.remove('hidden'); resDiv.innerHTML = '<div class="animate-pulse text-blue-400">Scanning global threat intel feeds...</div>';
+            try {
+                const res = await fetch('/api/scan_ip', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip}) });
+                const data = await res.json();
+                const isBad = data.malicious_votes > 0;
+                resDiv.innerHTML = `
+                    <div class="p-4 bg-slate-800 rounded border border-${isBad ? 'red' : 'green'}-500">
+                        <h4 class="font-bold text-lg mb-2 text-white">Target: ${data.ip}</h4>
+                        <p class="text-slate-400 text-sm mb-4 tech-text">API Status: ${data.status}</p>
+                        <p class="text-slate-400 text-sm mb-4 simple-text text-green-400">💡 SentraLog checked thousands of databases for this IP address.</p>
+                        <p class="text-3xl font-bold text-${isBad ? 'red' : 'green'}-500 mb-4">Risk Score: ${data.malicious_votes || 0}</p>
+                        ${isBad || true ? `<button onclick="blockIP('${data.ip}')" class="bg-red-600 px-4 py-2 rounded text-white text-sm hover:bg-red-500 font-bold">SOAR: Isolate & Block IP</button>` : ''}
+                    </div>`;
+            } catch(e) { resDiv.innerHTML = `<div class="text-red-500">Error</div>`; }
+        }
+
+        async function detonateURL() {
+            const url = document.getElementById('url-input').value;
+            const term = document.getElementById('vm-terminal');
+            term.innerHTML += `<div>> Extracting URL: ${url}</div>`;
+            term.innerHTML += `<div class="tech-text">> Hooking Windows Registry & Filesystem APIs...</div>`;
+            term.innerHTML += `<div class="simple-text text-green-400">> 💡 Opening link safely inside a locked box so it can't hurt your computer...</div>`;
+            try {
+                const res = await fetch('/api/scan_url', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({url}) });
+                const data = await res.json();
+                term.innerHTML += `<div class="text-blue-400">> API Result: ${data.status}</div>`;
+                if(data.result_link) term.innerHTML += `<div>> Report: <a href="${data.result_link}" target="_blank" class="underline text-purple-400">View Sandbox Report</a></div>`;
+            } catch(e) { term.innerHTML += `<div class="text-red-500">> Error</div>`; }
+        }
+
+        // Initialize Orgs
+        async function loadOrganizations() {
+            const res = await fetch('/api/organizations');
+            const data = await res.json();
+            const tbody = document.getElementById('org-table-body');
+            tbody.innerHTML = '';
+            data.organizations.forEach(org => {
+                tbody.innerHTML += `<tr><td class="px-6 py-4 text-white">${org.name}</td><td class="px-6 py-4 font-mono text-blue-400">${org.server_ip}</td><td class="px-6 py-4 text-green-500">${org.status}</td></tr>`;
+            });
+        }
+        
+        // --- Super Admin Gatekeeper ---
+        async function loadGatekeeper() {
+            try {
+                const res = await fetch('/api/admin/gatekeeper');
+                if(res.status === 403) {
+                    document.getElementById('gatekeeper-pending').innerHTML = '<div class="text-red-500">Access Denied. Super Admin privileges required.</div>';
+                    return;
+                }
+                const data = await res.json();
+                
+                const pendingDiv = document.getElementById('gatekeeper-pending');
+                pendingDiv.innerHTML = '';
+                if(data.pending.length === 0) pendingDiv.innerHTML = '<div class="text-slate-500 text-sm">No pending user registrations.</div>';
+                data.pending.forEach(p => {
+                    pendingDiv.innerHTML += `
+                        <div class="bg-black/60 border border-slate-700 p-4 rounded flex justify-between items-center mb-2">
+                            <div>
+                                <div class="text-white font-bold">${p.username} <span class="text-xs text-purple-400">(${p.role})</span></div>
+                                <div class="text-xs text-slate-400">IP: ${p.ip_address} | Loc: ${p.location}</div>
+                                <div class="text-xs text-yellow-500">Requested: ${p.created_at}</div>
+                            </div>
+                            <button onclick="approveUser('${p.username}')" class="bg-green-600 hover:bg-green-500 text-white font-bold px-4 py-2 rounded text-xs">Approve Access</button>
+                        </div>`;
+                });
+
+                const keysDiv = document.getElementById('gatekeeper-keys');
+                keysDiv.innerHTML = '';
+                data.keys.forEach(k => {
+                    keysDiv.innerHTML += `
+                        <div class="bg-black/60 border border-slate-700 p-4 rounded flex justify-between items-center mb-2">
+                            <div>
+                                <div class="text-slate-300 font-bold">${k.org_name}</div>
+                                <div class="text-xs text-yellow-500">Generated: ${k.requested_at}</div>
+                            </div>
+                            <div class="bg-red-900/50 text-red-400 font-mono text-sm px-4 py-2 border border-red-500 rounded select-all">${k.current_key}</div>
+                        </div>`;
+                });
+
+                const auditBody = document.getElementById('audit-table-body');
+                auditBody.innerHTML = '';
+                data.audits.forEach(a => {
+                    const isCrit = a.action.includes('CRITICAL');
+                    auditBody.innerHTML += `
+                        <tr class="hover:bg-slate-800 ${isCrit ? 'bg-red-900/20' : ''}">
+                            <td class="px-6 py-3 text-slate-500">${a.timestamp}</td>
+                            <td class="px-6 py-3 text-blue-400 font-bold">${a.user}</td>
+                            <td class="px-6 py-3 ${isCrit ? 'text-red-400 font-bold' : 'text-slate-300'}">${a.action}</td>
+                            <td class="px-6 py-3 text-yellow-500">${a.ip_address}</td>
+                            <td class="px-6 py-3 text-green-400">${a.location}</td>
+                        </tr>`;
+                });
+            } catch(e) {}
+        }
+        async function approveUser(username) {
+            try {
+                await fetch('/api/admin/approve_user', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username}) });
+                loadGatekeeper();
+            } catch(e) {}
+        }
+
+        // Workspace Logic
+        function connectEmail() {
+            const email = document.getElementById('ws-email').value;
+            if(!email) return;
+            document.getElementById('email-status').classList.remove('hidden');
+            document.getElementById('email-status').innerHTML = `<span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span> Monitoring ${email} for payloads...`;
+        }
+
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const logSandbox = (msg, color="text-slate-300") => {
+            const c = document.getElementById('sandbox-console');
+            const time = new Date().toISOString().replace('T', ' ').substring(0, 19);
+            c.innerHTML += `<div class="${color} mb-1">[${time}] ${msg}</div>`;
+            c.scrollTop = c.scrollHeight;
+        };
+
+        async function simulateIncoming() {
+            const btn = document.getElementById('btn-simulate');
+            btn.disabled = true;
+            
+            logSandbox("INCOMING MAIL INTERCEPTED...", "text-blue-400");
+            await sleep(1000);
+            logSandbox("Extracting artifacts from email body...");
+            await sleep(800);
+            logSandbox("Found suspicious hyperlink: http://secure-update-windows.com/payload.exe", "text-yellow-400");
+            await sleep(1200);
+            logSandbox("ROUTING TO CLOUD VM SANDBOX FOR DETONATION...", "text-purple-400");
+            
+            try {
+                const res = await fetch('/api/sandbox/detonate', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({url: 'http://secure-update-windows.com/payload.exe'}) });
+                const data = await res.json();
+                
+                await sleep(1500);
+                logSandbox("Executing URL in isolated environment (urlscan.io)...");
+                await sleep(2000);
+                logSandbox("Capturing DOM structure and network calls...");
+                await sleep(1500);
+                
+                if(data.status === 'success') {
+                    logSandbox(`ANALYSIS COMPLETE: ${data.threat_level}`, "text-red-500 font-bold");
+                    logSandbox(`VT Score: ${data.vt_score}`);
+                    logSandbox(`Verdict: ${data.verdict}`, "text-red-500");
+                    logSandbox("Action Taken: Email destroyed before reaching user inbox.", "text-green-400");
+                } else {
+                    logSandbox("API Error during detonation.", "text-red-500");
+                }
+            } catch(e) {
+                logSandbox("Connection to Cloud Sandbox failed.", "text-red-500");
+            }
+            btn.disabled = false;
+        }
+    </script>
+</body>
+</html>

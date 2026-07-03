@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: sentralog
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: MASTER_USERNAME
+        value: admin
+      - key: MASTER_PASSWORD
+        value: secure_production_password_here
+      - key: VIRUSTOTAL_API_KEY
+        value: 8072ea64497e6f8f93f89a5aafebe3b01ad22caf3f02f0be58b193290e9a117b
+      - key: URLSCAN_API_KEY
+        value: 019f28d8-86ea-749a-8176-2c7847db10ed

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Login - SentraLog XDR</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #020617; color: #f8fafc; font-family: 'Courier New', Courier, monospace; }
+        .glass { background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(16px); border: 1px solid rgba(59, 130, 246, 0.2); box-shadow: 0 0 40px rgba(59, 130, 246, 0.1); }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+CjxwYXRoIGQ9Ik0wIDBoNDB2NDBIMHoiIGZpbGw9Im5vbmUiLz4KPHBhdGggZD0iTTAgMGw0MCA0ME00MCAwbC00MCA0MCIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMDMpIiBzdHJva2Utd2lkdGg9IjEiLz4KPC9zdmc+')] bg-repeat relative">
+    
+    <div class="absolute inset-0 pointer-events-none" style="background: linear-gradient(rgba(2, 6, 23, 0.8) 1px, transparent 1px), linear-gradient(90deg, rgba(2, 6, 23, 0.8) 1px, transparent 1px); background-size: 20px 20px;"></div>
+
+    <div class="glass p-10 rounded-xl w-full max-w-md relative z-10" id="login-container">
+        <div class="flex justify-center mb-6">
+            <div class="h-16 w-16 rounded-full bg-gradient-to-tr from-blue-600 to-purple-700 flex items-center justify-center shadow-[0_0_30px_rgba(59,130,246,0.8)] border border-blue-400">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+            </div>
+        </div>
+        
+        <h2 class="text-3xl font-bold text-center text-white mb-2 tracking-widest uppercase">Sentra<span class="text-blue-500">Log</span> <span class="text-red-500 text-sm align-top">XDR</span></h2>
+        
+        <div id="error-box" class="hidden bg-red-900/40 border border-red-500 text-red-400 p-3 rounded mb-6 text-sm text-center"></div>
+        <div id="success-box" class="hidden bg-green-900/40 border border-green-500 text-green-400 p-3 rounded mb-6 text-sm text-center"></div>
+
+        <!-- STAGE 1: Standard Login -->
+        <div id="stage-login" class="space-y-4">
+            <div class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
+                <button onclick="switchView('login')" class="text-white font-bold text-sm">LOGIN</button>
+                <button onclick="switchView('register')" class="text-slate-500 hover:text-white font-bold text-sm transition-colors">REGISTER</button>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1 uppercase">Username</label>
+                <input type="text" id="l-user" class="w-full bg-black/50 border border-slate-700 rounded px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1 uppercase">Password</label>
+                <input type="password" id="l-pass" class="w-full bg-black/50 border border-slate-700 rounded px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+            </div>
+            <button onclick="login()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded border border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.6)] uppercase tracking-wider mt-4">Authenticate</button>
+            
+            <div class="text-center mt-6">
+                <button onclick="switchView('emergency')" class="text-red-500 text-xs font-bold hover:underline">⚠️ Use Emergency Bypass Key</button>
+            </div>
+        </div>
+
+        <!-- STAGE 2: Registration -->
+        <div id="stage-register" class="space-y-4 hidden">
+            <div class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
+                <button onclick="switchView('login')" class="text-slate-500 hover:text-white font-bold text-sm transition-colors">LOGIN</button>
+                <button onclick="switchView('register')" class="text-white font-bold text-sm">REGISTER</button>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1 uppercase">Choose Username</label>
+                <input type="text" id="r-user" class="w-full bg-black/50 border border-slate-700 rounded px-4 py-2 text-white focus:outline-none focus:border-blue-500">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1 uppercase">Choose Password</label>
+                <input type="password" id="r-pass" class="w-full bg-black/50 border border-slate-700 rounded px-4 py-2 text-white focus:outline-none focus:border-blue-500">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1 uppercase">Select Role</label>
+                <select id="r-role" class="w-full bg-black/50 border border-slate-700 rounded px-4 py-2 text-white focus:outline-none focus:border-blue-500">
+                    <option value="SOC1 Analyst">SOC1 Analyst</option>
+                    <option value="SOC2 Engineer">SOC2 Engineer</option>
+                    <option value="SOC Manager">SOC Manager</option>
+                </select>
+            </div>
+            <button onclick="register()" class="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 rounded border border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.6)] uppercase tracking-wider mt-4">Submit for Approval</button>
+        </div>
+
+        <!-- STAGE 3: Emergency Override -->
+        <div id="stage-emergency" class="space-y-6 hidden">
+            <div class="bg-red-900/30 border border-red-500 p-4 rounded text-center">
+                <p class="text-red-500 text-xs font-bold uppercase mb-2">Emergency Access Protocol</p>
+                <p class="text-slate-300 text-xs">Enter your one-time emergency bypass key. This action will be logged and the key destroyed.</p>
+            </div>
+            <div>
+                <input type="text" id="e-key" class="w-full bg-black/50 border border-red-700 rounded px-4 py-3 text-white font-mono text-center tracking-widest focus:outline-none focus:border-red-500" placeholder="EMG-XXXXXXXXXXXX">
+            </div>
+            <button onclick="emergencyLogin()" class="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded border border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.6)] uppercase tracking-wider">Breach Firewall</button>
+            <div class="text-center"><button onclick="switchView('login')" class="text-slate-500 text-xs hover:text-white">Cancel</button></div>
+        </div>
+
+    </div>
+
+    <script>
+        const showError = (msg) => { const el = document.getElementById('error-box'); el.innerText = msg; el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 5000); };
+        const showSuccess = (msg) => { const el = document.getElementById('success-box'); el.innerText = msg; el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 8000); };
+        
+        function switchView(view) {
+            document.getElementById('stage-login').classList.add('hidden');
+            document.getElementById('stage-register').classList.add('hidden');
+            document.getElementById('stage-emergency').classList.add('hidden');
+            document.getElementById('stage-' + view).classList.remove('hidden');
+        }
+
+        async function login() {
+            const u = document.getElementById('l-user').value;
+            const p = document.getElementById('l-pass').value;
+            if(!u || !p) return showError("Enter credentials.");
+            
+            try {
+                const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({username: u, password: p}) });
+                const data = await res.json();
+                if (data.status === 'success') window.location.href = '/dashboard';
+                else showError(data.error || "Login Failed");
+            } catch(e) { showError("Server Error"); }
+        }
+
+        async function register() {
+            const u = document.getElementById('r-user').value;
+            const p = document.getElementById('r-pass').value;
+            const r = document.getElementById('r-role').value;
+            if(!u || !p) return showError("Fill all fields.");
+            
+            try {
+                const res = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({username: u, password: p, role: r}) });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    showSuccess("Registration submitted! You must wait for the Super Admin to approve your account.");
+                    switchView('login');
+                } else showError(data.error || "Registration Failed");
+            } catch(e) { showError("Server Error"); }
+        }
+
+        async function emergencyLogin() {
+            const k = document.getElementById('e-key').value;
+            if(!k) return showError("Enter Key.");
+            
+            try {
+                const res = await fetch('/api/auth/emergency', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({code: k}) });
+                const data = await res.json();
+                if (data.status === 'success') window.location.href = '/dashboard';
+                else showError(data.error || "Key Denied");
+            } catch(e) { showError("Server Error"); }
+        }
+    </script>
+</body>
+</html>
