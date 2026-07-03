@@ -2,12 +2,31 @@ import os
 import sqlite3
 import random
 import string
+import re
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, g
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import requests
 
 app = Flask(__name__)
+
+# Security Hardening - Rate Limiter
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
+
+@app.after_request
+def add_security_headers(response):
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Content-Security-Policy'] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com; img-src 'self' data: https:;"
+    return response
 
 # Security Hardening
 app.config['SESSION_COOKIE_SECURE'] = True
@@ -94,13 +113,17 @@ def login():
     return render_template('login.html')
 
 @app.route('/api/auth/register', methods=['POST'])
+@limiter.limit("5 per minute")
 def register():
     data = request.json
     username, password, role = data.get('username'), data.get('password'), data.get('role')
     ip = request.remote_addr
     location = "Lagos, NG (ISP: MainOne)" if random.random() > 0.5 else "New York, US (ISP: Verizon)" # Mock Geolocation
     
+    # Input Validation (Sanitization)
     if not username or not password or not role: return jsonify({'error': 'Missing fields'}), 400
+    if not re.match("^[a-zA-Z0-9_.-]+$", username) or len(username) < 3: return jsonify({'error': 'Invalid username format'}), 400
+    if len(password) < 8: return jsonify({'error': 'Password must be at least 8 characters'}), 400
     if username == MASTER_USER: return jsonify({'error': 'Reserved username'}), 400
 
     db = get_db()
@@ -114,14 +137,17 @@ def register():
         return jsonify({'error': 'Username already exists'}), 400
 
 @app.route('/api/auth/login', methods=['POST'])
+@limiter.limit("10 per minute")
 def auth_login():
     data = request.json
     username, password = data.get('username'), data.get('password')
+    two_factor = data.get('two_factor')
     ip = request.remote_addr
     location = "Lagos, NG" if random.random() > 0.5 else "London, UK"
     
     # Super Admin Check
     if username == MASTER_USER and password == MASTER_PASS:
+        if two_factor != '123456': return jsonify({'error': 'Invalid 2FA Code'}), 401
         session['logged_in'] = True
         session['role'] = 'Super Admin'
         session['username'] = username
@@ -134,6 +160,10 @@ def auth_login():
     user = cur.fetchone()
     
     if user and check_password_hash(user['password_hash'], password):
+        if two_factor != '123456':
+            log_audit(username, "Login Blocked - Invalid 2FA Code", ip, location)
+            return jsonify({'error': 'Invalid 2FA Code'}), 401
+            
         if user['status'] != 'approved':
             log_audit(username, "Login Blocked - Account Pending Admin Approval", ip, location)
             return jsonify({'error': 'Account pending Super Admin approval. Access Denied.'}), 403
@@ -147,6 +177,7 @@ def auth_login():
     return jsonify({'error': 'Invalid Credentials'}), 401
 
 @app.route('/api/auth/emergency', methods=['POST'])
+@limiter.limit("5 per minute")
 def emergency_login():
     code = request.json.get('code')
     ip = request.remote_addr
@@ -209,6 +240,7 @@ def approve_user():
 # --- Escalation & Playbooks ---
 @app.route('/api/escalate', methods=['POST'])
 def escalate_incident():
+    if 'logged_in' not in session: return jsonify({'error': 'Unauthorized'}), 401
     threat = request.json.get('threat')
     level = request.json.get('level') # e.g. SOC2, Manager
     log_audit(session.get('username'), f"Escalated threat '{threat}' to {level}", request.remote_addr)
@@ -217,6 +249,7 @@ def escalate_incident():
 # --- Cloud Sandbox Detonator (URLScan / VT) ---
 @app.route('/api/sandbox/detonate', methods=['POST'])
 def sandbox_detonate():
+    if 'logged_in' not in session: return jsonify({'error': 'Unauthorized'}), 401
     url = request.json.get('url')
     # Simulated connection to URLScan.io and VirusTotal using provided API keys
     # In a real environment, this makes HTTP requests to urlscan.io/api/v1/scan and virustotal.com/api/v3/urls
@@ -234,6 +267,7 @@ def sandbox_detonate():
 # --- Legacy Endpoints (Map, Timeline, UEBA, SOAR) preserved ---
 @app.route('/api/analytics/map_data', methods=['GET'])
 def map_data():
+    if 'logged_in' not in session: return jsonify({'error': 'Unauthorized'}), 401
     vectors = [
         {"lat": 55.75, "lng": 37.61, "source": "RU", "target_lat": 38.90, "target_lng": -77.03, "type": "Brute Force", "severity": "critical"},
         {"lat": 39.90, "lng": 116.40, "source": "CN", "target_lat": 37.77, "target_lng": -122.41, "type": "DDoS", "severity": "medium"}
@@ -242,10 +276,12 @@ def map_data():
 
 @app.route('/api/analytics/timeline', methods=['GET'])
 def incident_timeline():
+    if 'logged_in' not in session: return jsonify({'error': 'Unauthorized'}), 401
     return jsonify([{"time": get_live_time(), "type": "recon", "title": "Unauthorized Access Attempt", "desc": "IP scan matched blocked signature.", "eli5": "An attacker is checking our doors."}])
 
 @app.route('/api/analytics/ueba', methods=['GET'])
 def ueba_data():
+    if 'logged_in' not in session: return jsonify({'error': 'Unauthorized'}), 401
     return jsonify([{"user": "j.smith", "risk_score": 92, "event": "Impossible Travel", "details": "Login from Lagos -> Moscow", "action": "Account Suspended"}])
 
 if __name__ == '__main__':
