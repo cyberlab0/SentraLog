@@ -143,6 +143,30 @@ def log_audit(user, action, ip, location="Unknown"):
     db.execute('INSERT INTO audit_logs (user, action, ip_address, location, timestamp) VALUES (?, ?, ?, ?, ?)', (user, action, ip, enriched_location, get_live_time()))
     db.commit()
 
+def log_traffic(ip, user_agent, referrer):
+    country, state, city, provider = "Unknown", "Unknown", "Unknown", "Unknown"
+    is_vpn = False
+    
+    if ip != '127.0.0.1' and not ip.startswith('192.168.'):
+        try:
+            res = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,regionName,city,isp,org,mobile,proxy,hosting,query", timeout=3).json()
+            if res.get("status") == "success":
+                country = res.get("country", "Unknown")
+                state = res.get("regionName", "Unknown")
+                city = res.get("city", "Unknown")
+                provider = res.get("isp", "Unknown")
+                if not provider: provider = res.get("org", "Unknown")
+                
+                # If it's a hosting center (AWS, DigitalOcean) or flagged as proxy, likely a VPN
+                if res.get("hosting", False) or res.get("proxy", False):
+                    is_vpn = True
+        except: pass
+
+    db = get_db()
+    db.execute('INSERT INTO traffic_logs (ip_address, provider, country, state, city, user_agent, referring_url, is_vpn, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+               (ip, provider, country, state, city, user_agent, referrer, is_vpn, get_live_time()))
+    db.commit()
+
 # --- Threat Intelligence (IP Scanner) ---
 @app.route('/api/scan_ip', methods=['POST'])
 def ip_scanner():
@@ -218,6 +242,7 @@ def register():
                    (username, generate_password_hash(password), role, 'pending', ip, location, get_live_time()))
         db.commit()
         log_audit(username, "New Registration Submitted - Awaiting Admin Approval", ip, location)
+        log_traffic(ip, request.headers.get('User-Agent', 'Unknown'), request.headers.get('Referer', 'no referrer'))
         return jsonify({'status': 'success'})
     except sqlite3.IntegrityError:
         return jsonify({'error': 'Username already exists'}), 400
@@ -238,6 +263,7 @@ def auth_login():
         session['role'] = 'Super Admin'
         session['username'] = username
         log_audit(username, "Super Admin Login Success", ip, location)
+        log_traffic(ip, request.headers.get('User-Agent', 'Unknown'), request.headers.get('Referer', 'no referrer'))
         return jsonify({'status': 'success'})
     
     # Regular User Check
@@ -258,6 +284,7 @@ def auth_login():
         session['role'] = user['role']
         session['username'] = username
         log_audit(username, f"{user['role']} Login Success", ip, location)
+        log_traffic(ip, request.headers.get('User-Agent', 'Unknown'), request.headers.get('Referer', 'no referrer'))
         return jsonify({'status': 'success'})
         
     return jsonify({'error': 'Invalid Credentials'}), 401
