@@ -280,6 +280,29 @@ def sandbox_detonate():
         'sandbox_ip': '104.21.44.1'
     })
 
+# --- Endpoint Agent Telemetry Ingestion ---
+@app.route('/api/agent/ingest', methods=['POST'])
+@limiter.limit("100 per minute")
+def agent_ingest():
+    data = request.json
+    api_key = data.get('api_key')
+    # Secret Key matching the physical deployed agents
+    if api_key != "SENTRA-AGENT-9912":
+        return jsonify({'error': 'Unauthorized Agent'}), 401
+    
+    agent_id = data.get('agent_id', 'Unknown_Agent')
+    event_type = data.get('event_type', 'System Alert')
+    details = data.get('details', '')
+    
+    ip = get_client_ip()
+    location = get_geoip(ip)
+    
+    # We prefix it with [EDR ALERT] so the Timeline displays it properly
+    action_text = f"[EDR ALERT - {event_type}] {details}"
+    log_audit(f"Host-{agent_id}", action_text, ip, location)
+    
+    return jsonify({'status': 'success', 'msg': 'Telemetry safely ingested'})
+
 # --- True Database-Driven Endpoints ---
 @app.route('/api/analytics/map_data', methods=['GET'])
 def map_data():
