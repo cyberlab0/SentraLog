@@ -70,6 +70,21 @@ def generate_emergency_key():
 def get_live_time():
     return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 
+def get_client_ip():
+    if request.headers.get('X-Forwarded-For'):
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    return request.remote_addr
+
+def get_geoip(ip):
+    # Skip local IPs
+    if ip == '127.0.0.1' or ip.startswith('192.168.'): return "Local Network|0|0"
+    try:
+        res = requests.get(f"http://ip-api.com/json/{ip}", timeout=3).json()
+        if res.get("status") == "success":
+            return f"{res['city']}, {res['countryCode']}|{res['lat']}|{res['lon']}"
+    except: pass
+    return "Unknown|0|0"
+
 def init_db():
     with app.app_context():
         db = get_db()
@@ -117,8 +132,8 @@ def login():
 def register():
     data = request.json
     username, password, role = data.get('username'), data.get('password'), data.get('role')
-    ip = request.remote_addr
-    location = "Lagos, NG (ISP: MainOne)" if random.random() > 0.5 else "New York, US (ISP: Verizon)" # Mock Geolocation
+    ip = get_client_ip()
+    location = get_geoip(ip)
     
     # Input Validation (Sanitization)
     if not username or not password or not role: return jsonify({'error': 'Missing fields'}), 400
@@ -142,8 +157,8 @@ def auth_login():
     data = request.json
     username, password = data.get('username'), data.get('password')
     two_factor = data.get('two_factor')
-    ip = request.remote_addr
-    location = "Lagos, NG" if random.random() > 0.5 else "London, UK"
+    ip = get_client_ip()
+    location = get_geoip(ip)
     
     # Super Admin Check
     if username == MASTER_USER and password == MASTER_PASS:
@@ -180,7 +195,8 @@ def auth_login():
 @limiter.limit("5 per minute")
 def emergency_login():
     code = request.json.get('code')
-    ip = request.remote_addr
+    ip = get_client_ip()
+    location = get_geoip(ip)
     db = get_db()
     
     cur = db.execute("SELECT * FROM emergency_keys WHERE current_key = ?", (code,))
@@ -193,7 +209,7 @@ def emergency_login():
         session['logged_in'] = True
         session['role'] = 'Emergency Responder'
         session['username'] = 'EMERGENCY_OVERRIDE'
-        log_audit('EMERGENCY_OVERRIDE', f"CRITICAL: One-Time Bypass Key Used. Key invalidated.", ip, "Emergency Access")
+        log_audit('EMERGENCY_OVERRIDE', f"CRITICAL: One-Time Bypass Key Used. Key invalidated.", ip, location)
         return jsonify({'status': 'success'})
         
     return jsonify({'error': 'Invalid Emergency Key'}), 401
@@ -201,7 +217,7 @@ def emergency_login():
 @app.route('/logout')
 def logout():
     if 'username' in session:
-        log_audit(session['username'], "User Logout", request.remote_addr)
+        log_audit(session['username'], "User Logout", get_client_ip(), get_geoip(get_client_ip()))
     session.clear()
     return redirect(url_for('login'))
 
@@ -234,7 +250,7 @@ def approve_user():
     db = get_db()
     db.execute("UPDATE users SET status = 'approved' WHERE username = ?", (username,))
     db.commit()
-    log_audit(session.get('username'), f"Approved User Registration: {username}", request.remote_addr)
+    log_audit(session.get('username'), f"Approved User Registration: {username}", get_client_ip(), get_geoip(get_client_ip()))
     return jsonify({'status': 'success'})
 
 # --- Escalation & Playbooks ---
@@ -243,7 +259,7 @@ def escalate_incident():
     if 'logged_in' not in session: return jsonify({'error': 'Unauthorized'}), 401
     threat = request.json.get('threat')
     level = request.json.get('level') # e.g. SOC2, Manager
-    log_audit(session.get('username'), f"Escalated threat '{threat}' to {level}", request.remote_addr)
+    log_audit(session.get('username'), f"Escalated threat '{threat}' to {level}", get_client_ip(), get_geoip(get_client_ip()))
     return jsonify({'status': 'success'})
 
 # --- Cloud Sandbox Detonator (URLScan / VT) ---
@@ -253,7 +269,7 @@ def sandbox_detonate():
     url = request.json.get('url')
     # Simulated connection to URLScan.io and VirusTotal using provided API keys
     # In a real environment, this makes HTTP requests to urlscan.io/api/v1/scan and virustotal.com/api/v3/urls
-    log_audit(session.get('username', 'System'), f"Detonated Payload in Cloud VM: {url}", request.remote_addr)
+    log_audit(session.get('username', 'System'), f"Detonated Payload in Cloud VM: {url}", get_client_ip(), get_geoip(get_client_ip()))
     
     return jsonify({
         'status': 'success',
@@ -264,25 +280,41 @@ def sandbox_detonate():
         'sandbox_ip': '104.21.44.1'
     })
 
-# --- Legacy Endpoints (Map, Timeline, UEBA, SOAR) preserved ---
+# --- True Database-Driven Endpoints ---
 @app.route('/api/analytics/map_data', methods=['GET'])
 def map_data():
     if 'logged_in' not in session: return jsonify({'error': 'Unauthorized'}), 401
-    vectors = [
-        {"lat": 55.75, "lng": 37.61, "source": "RU", "target_lat": 38.90, "target_lng": -77.03, "type": "Brute Force", "severity": "critical"},
-        {"lat": 39.90, "lng": 116.40, "source": "CN", "target_lat": 37.77, "target_lng": -122.41, "type": "DDoS", "severity": "medium"}
-    ]
-    return jsonify(random.sample(vectors, k=1))
+    db = get_db()
+    cur = db.execute("SELECT ip_address, location, action FROM audit_logs WHERE location != 'Unknown|0|0' AND location != 'Unknown' ORDER BY timestamp DESC LIMIT 20")
+    vectors = []
+    for row in cur.fetchall():
+        parts = str(row['location']).split('|')
+        if len(parts) == 3:
+            severity = "critical" if "Block" in row['action'] or "Denied" in row['action'] else "low"
+            vectors.append({"lat": float(parts[1]), "lng": float(parts[2]), "source": parts[0], "target_lat": 38.90, "target_lng": -77.03, "type": row['action'], "severity": severity})
+    return jsonify(vectors)
 
 @app.route('/api/analytics/timeline', methods=['GET'])
 def incident_timeline():
     if 'logged_in' not in session: return jsonify({'error': 'Unauthorized'}), 401
-    return jsonify([{"time": get_live_time(), "type": "recon", "title": "Unauthorized Access Attempt", "desc": "IP scan matched blocked signature.", "eli5": "An attacker is checking our doors."}])
+    db = get_db()
+    cur = db.execute("SELECT timestamp, action, user, ip_address FROM audit_logs ORDER BY timestamp DESC LIMIT 15")
+    events = []
+    for row in cur.fetchall():
+        type_flag = "alert" if "Block" in row['action'] or "Denied" in row['action'] else "info"
+        events.append({"time": row['timestamp'], "type": type_flag, "title": row['action'], "desc": f"User: {row['user']} | IP: {row['ip_address']}", "eli5": "System event recorded via True IP."})
+    return jsonify(events)
 
 @app.route('/api/analytics/ueba', methods=['GET'])
 def ueba_data():
     if 'logged_in' not in session: return jsonify({'error': 'Unauthorized'}), 401
-    return jsonify([{"user": "j.smith", "risk_score": 92, "event": "Impossible Travel", "details": "Login from Lagos -> Moscow", "action": "Account Suspended"}])
+    db = get_db()
+    cur = db.execute("SELECT user, action, ip_address FROM audit_logs WHERE action LIKE '%Block%' OR action LIKE '%Denied%' ORDER BY timestamp DESC LIMIT 10")
+    risks = []
+    for row in cur.fetchall():
+        risks.append({"user": row['user'], "risk_score": 95, "event": "Multiple Failed/Blocked Actions", "details": f"IP: {row['ip_address']}", "action": "Flagged for Review"})
+    if not risks: risks = [{"user": "System Normal", "risk_score": 0, "event": "No anomalies", "details": "All user behavior within thresholds.", "action": "None"}]
+    return jsonify(risks)
 
 if __name__ == '__main__':
     app.run(debug=False, port=5000, threaded=True)
