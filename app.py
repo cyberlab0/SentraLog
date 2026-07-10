@@ -25,7 +25,7 @@ def add_security_headers(response):
     response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['Content-Security-Policy'] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com; img-src 'self' data: https:;"
+    response.headers['Content-Security-Policy'] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' https:; img-src 'self' data: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:;"
     return response
 
 # Security Hardening
@@ -131,10 +131,10 @@ def log_audit(user, action, ip, location="Unknown"):
     db.commit()
 
 # --- Threat Intelligence (IP Scanner) ---
-@app.route('/api/tools/ip_scanner', methods=['GET'])
+@app.route('/api/scan_ip', methods=['POST'])
 def ip_scanner():
     if 'logged_in' not in session: return jsonify({'error': 'Unauthorized'}), 401
-    target_ip = request.args.get('ip')
+    target_ip = request.json.get('ip')
     if not target_ip: return jsonify({'error': 'No IP provided'}), 400
     
     # 1. Geo-Location Lookup
@@ -160,8 +160,10 @@ def ip_scanner():
     log_audit(session.get('username'), f"Ran IP Threat Scan on: {target_ip}", get_client_ip(), get_geoip(get_client_ip()))
 
     return jsonify({
-        "ip_address": target_ip,
+        "status": "success",
+        "ip": target_ip,
         "geolocation": geo_data,
+        "malicious_votes": int(threat_score.split('/')[0]),
         "threat_intelligence": {
             "reputation_score": threat_score,
             "history": reported_before
