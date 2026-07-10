@@ -56,6 +56,7 @@
             
             <div class="px-6 py-2 mt-4 text-xs font-bold text-slate-500 uppercase">Detection & SOAR</div>
             <button onclick="switchTab('scanner')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg> Threat Intel Scanner</button>
+            <button onclick="switchTab('traffic')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> IP Grabber & Traffic</button>
             <button onclick="switchTab('sandbox')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg> Detonation Sandbox</button>
             <button onclick="switchTab('deception')" class="nav-item w-full text-left px-6 py-2.5 text-sm font-medium text-slate-300 flex items-center gap-3"><svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"></path></svg> Honeypots & Decoys</button>
             
@@ -184,6 +185,40 @@
                             <button onclick="scanIP()" class="bg-red-600 hover:bg-red-500 text-white font-semibold px-8 py-3 rounded shadow-lg">Scan & Analyze</button>
                         </div>
                         <div id="scan-results" class="hidden bg-slate-900/80 rounded-lg p-6 border border-slate-700"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TRAFFIC / IP GRABBER TAB -->
+            <div id="tab-traffic" class="tab-content hidden h-full">
+                <div class="w-full mx-auto h-full flex flex-col">
+                    <div class="flex justify-between items-end mb-4">
+                        <div>
+                            <h2 class="text-2xl font-bold text-teal-400">Network Traffic & IP Grabber</h2>
+                            <p class="text-slate-400 text-sm">Real-time deep packet inspection of connected targets.</p>
+                        </div>
+                        <div class="bg-black/50 p-3 rounded border border-slate-700 text-xs">
+                            <span class="text-slate-400 font-bold block mb-1">Your Live Tracking URL:</span>
+                            <code class="text-blue-400 select-all font-mono" id="tracking-url">https://sentralog-xdr.onrender.com/t/demo123</code>
+                        </div>
+                    </div>
+                    
+                    <div class="glass flex-1 rounded-xl border border-slate-700/50 overflow-hidden bg-white text-slate-800 flex flex-col">
+                        <table class="w-full text-left text-sm">
+                            <thead class="text-xs font-bold text-slate-600 border-b border-slate-200">
+                                <tr>
+                                    <th class="px-6 py-4">Date/Time &#x2195;</th>
+                                    <th class="px-6 py-4">IP/Provider &#x25BC;</th>
+                                    <th class="px-6 py-4">Country &#x2753;</th>
+                                    <th class="px-6 py-4">User Agent &#x2195;</th>
+                                    <th class="px-6 py-4">Referring URL &#x2195;</th>
+                                    <th class="px-6 py-4 text-center">More</th>
+                                </tr>
+                            </thead>
+                            <tbody id="traffic-table-body" class="divide-y divide-slate-100 overflow-y-auto block h-[500px]" style="display: table-row-group;">
+                                <!-- Injected via JS -->
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -337,6 +372,36 @@
         </div>
     </main>
 
+    <!-- Advanced Log Modal -->
+    <div id="advanced-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-2xl w-full max-w-4xl flex flex-col text-slate-800 max-h-[90vh]">
+            <div class="flex justify-between items-center p-4 border-b border-slate-200">
+                <h3 class="text-xl font-bold mx-auto text-center w-full">Advanced Log</h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 absolute right-6"><svg class="w-6 h-6 bg-slate-200 rounded-full p-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto flex-1">
+                <div class="flex justify-center mb-6">
+                    <button id="btn-explain" class="bg-[#2a3f54] hover:bg-[#1f2f40] text-white font-semibold px-6 py-2 rounded shadow flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg> Explain this log
+                    </button>
+                </div>
+                
+                <div id="explanation-box" class="bg-[#f0f0f0] p-6 rounded mb-8 text-sm text-[#555] leading-relaxed hidden whitespace-pre-line border border-[#e5e5e5]"></div>
+
+                <table class="w-full text-left text-sm border border-slate-200">
+                    <tbody class="divide-y divide-slate-200" id="modal-table-body">
+                        <!-- Injected via JS -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="p-4 border-t border-slate-200 flex justify-end bg-slate-50 rounded-b-lg">
+                <button onclick="closeModal()" class="bg-[#e6e9ed] text-[#333] hover:bg-slate-300 px-6 py-2 rounded font-medium border border-[#ccd1d9]">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         setInterval(() => { document.getElementById('clock').innerText = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC'; }, 1000);
 
@@ -356,6 +421,7 @@
             if(tabId === 'timeline') loadTimeline();
             if(tabId === 'identity') loadUEBA();
             if(tabId === 'deception') loadHoneypots();
+            if(tabId === 'traffic') loadTrafficLogs();
             if(tabId === 'orgs') loadOrganizations();
             if(tabId === 'gatekeeper' || tabId === 'audit') loadGatekeeper();
         }
@@ -615,6 +681,110 @@
                 logSandbox("Connection to Cloud Sandbox failed.", "text-red-500");
             }
             btn.disabled = false;
+        }
+        // --- Traffic & IP Grabber ---
+        let currentTrafficLogs = [];
+        
+        async function loadTrafficLogs() {
+            try {
+                const res = await fetch('/api/analytics/traffic');
+                currentTrafficLogs = await res.json();
+                const tbody = document.getElementById('traffic-table-body');
+                tbody.innerHTML = '';
+                
+                currentTrafficLogs.forEach(log => {
+                    const isVpn = log.is_vpn ? '<span class="text-red-600 bg-red-100 rounded-full w-4 h-4 inline-flex items-center justify-center text-[10px] font-bold ml-1" title="VPN/Proxy Detected">!</span>' : '';
+                    
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-4">
+                                <div class="text-[#333]">${log.timestamp.split(' ')[0]}</div>
+                                <div class="text-[#888] text-xs">${log.timestamp.split(' ')[1]} UTC</div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="text-[#333]">${log.ip_address} ${isVpn}</div>
+                                <div class="text-[#b4bcc2] text-xs uppercase">${log.provider}</div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="text-[#333]">${log.country}</div>
+                                <div class="text-[#b4bcc2] text-xs">${log.state}</div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="text-[#888] text-xs break-words max-w-xs">${log.user_agent}</div>
+                            </td>
+                            <td class="px-6 py-4 text-[#b4bcc2] italic text-xs">
+                                ${log.referring_url}
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <button onclick="showAdvancedLog(${log.id})" class="text-[#1abb9c] hover:text-[#14937b] text-sm font-medium">More Info</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch(e) {}
+        }
+
+        function showAdvancedLog(logId) {
+            const log = currentTrafficLogs.find(l => l.id === logId);
+            if(!log) return;
+            
+            document.getElementById('advanced-modal').classList.remove('hidden');
+            document.getElementById('explanation-box').classList.add('hidden');
+            
+            // Format User Agent parsing for modal (basic extraction for UI display)
+            const ua = log.user_agent.toLowerCase();
+            let browser = "Unknown";
+            if(ua.includes("chrome")) browser = "Chrome";
+            if(ua.includes("firefox")) browser = "Firefox";
+            if(ua.includes("safari") && !ua.includes("chrome")) browser = "Safari";
+            
+            let os = "Unknown";
+            if(ua.includes("windows nt 10.0")) os = "Windows 10";
+            else if(ua.includes("mac os")) os = "macOS";
+            else if(ua.includes("android")) os = "Android";
+            else if(ua.includes("iphone")) os = "iOS";
+
+            const vpnHtml = log.is_vpn ? 
+                `This IP may be a VPN or Proxy<br><span class="text-red-600 font-bold italic text-xs">&#x26A0; User may be attempting to hide their location</span>` : 
+                `No proxy detected`;
+                
+            const vpnLabel = log.is_vpn ? `<span class="text-red-600 text-[10px] font-bold uppercase block mt-1">NEW!</span>` : '';
+
+            document.getElementById('modal-table-body').innerHTML = `
+                <tr><td class="px-6 py-3 font-bold bg-white w-48 text-sm">Date/Time</td><td class="px-6 py-3 bg-white text-center text-[#555]">${log.timestamp} UTC</td></tr>
+                <tr><td class="px-6 py-3 font-bold bg-white w-48 text-sm">IP Address</td><td class="px-6 py-3 bg-white text-center text-[#555]">${log.ip_address}</td></tr>
+                <tr><td class="px-6 py-3 font-bold bg-white w-48 text-sm">VPN/Proxy Detection ${vpnLabel}</td><td class="px-6 py-3 bg-white text-center text-[#555]">${vpnHtml}</td></tr>
+                <tr><td class="px-6 py-3 font-bold bg-white w-48 text-sm">Country</td><td class="px-6 py-3 bg-white text-center text-[#555]">${log.country}, ${log.state}</td></tr>
+                <tr><td class="px-6 py-3 font-bold bg-white w-48 text-sm">Browser</td><td class="px-6 py-3 bg-white text-center text-[#555]">${browser}</td></tr>
+                <tr><td class="px-6 py-3 font-bold bg-white w-48 text-sm">Operating System</td><td class="px-6 py-3 bg-white text-center text-[#555]">${os}</td></tr>
+                <tr><td class="px-6 py-3 font-bold bg-white w-48 text-sm">User Agent</td><td class="px-6 py-3 bg-white text-center text-[#555] text-xs">${log.user_agent}</td></tr>
+                <tr><td class="px-6 py-3 font-bold bg-white w-48 text-sm">Referring URL</td><td class="px-6 py-3 bg-white text-center text-[#b4bcc2] italic">${log.referring_url}</td></tr>
+                <tr><td class="px-6 py-3 font-bold bg-white w-48 text-sm">Host Name</td><td class="px-6 py-3 bg-white text-center text-[#555]">${log.ip_address}</td></tr>
+                <tr><td class="px-6 py-3 font-bold bg-white w-48 text-sm">ISP</td><td class="px-6 py-3 bg-white text-center text-[#555] uppercase">${log.provider}</td></tr>
+            `;
+            
+            const explainBtn = document.getElementById('btn-explain');
+            explainBtn.onclick = async function() {
+                explainBtn.innerHTML = '<span class="animate-pulse">Analyzing telemetry...</span>';
+                try {
+                    const res = await fetch('/api/explain_log', {
+                        method: 'POST', 
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(log)
+                    });
+                    const data = await res.json();
+                    document.getElementById('explanation-box').innerHTML = data.explanation;
+                    document.getElementById('explanation-box').classList.remove('hidden');
+                } catch(e) {
+                    document.getElementById('explanation-box').innerHTML = "Explanation failed to load.";
+                    document.getElementById('explanation-box').classList.remove('hidden');
+                }
+                explainBtn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg> Explain this log';
+            };
+        }
+        
+        function closeModal() {
+            document.getElementById('advanced-modal').classList.add('hidden');
         }
     </script>
 </body>
