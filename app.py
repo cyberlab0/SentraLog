@@ -143,6 +143,12 @@ def log_audit(user, action, ip, location="Unknown"):
     db.execute('INSERT INTO audit_logs (user, action, ip_address, location, timestamp) VALUES (?, ?, ?, ?, ?)', (user, action, ip, enriched_location, get_live_time()))
     db.commit()
 
+def log_admin_action(user, action, ip_address, location="Unknown"):
+    db = get_db()
+    db.execute('INSERT INTO audit_logs (timestamp, user, action, ip_address, location) VALUES (?, ?, ?, ?, ?)',
+               (get_live_time(), user, action, ip_address, location))
+    db.commit()
+
 def log_traffic(ip, user_agent, referrer):
     country, state, city, provider = "Unknown", "Unknown", "Unknown", "Unknown"
     is_vpn = False
@@ -326,30 +332,55 @@ def dashboard():
 
 # --- Gatekeeper & Approvals (Super Admin Only) ---
 @app.route('/api/admin/gatekeeper', methods=['GET'])
-def get_gatekeeper_data():
-    if session.get('role') != 'Super Admin': return jsonify({'error': 'Unauthorized'}), 403
+def get_gatekeeper():
+    if 'user_id' not in session or session.get('role') != 'Super Admin':
+        return jsonify({"error": "Forbidden"}), 403
+    
     db = get_db()
     
-    cur = db.execute("SELECT * FROM users WHERE status = 'pending' ORDER BY created_at DESC")
-    pending = [dict(row) for row in cur.fetchall()]
-    
-    cur = db.execute("SELECT * FROM emergency_keys")
-    keys = [dict(row) for row in cur.fetchall()]
-    
-    cur = db.execute("SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 50")
-    audits = [dict(row) for row in cur.fetchall()]
-    
-    return jsonify({'pending': pending, 'keys': keys, 'audits': audits})
+    # Get pending users
+    cur = db.execute("SELECT id, username, ip_address, location, created_at, role FROM users WHERE status='pending' ORDER BY created_at DESC")
+    pending = []
+    for row in cur.fetchall():
+        pending.append({
+            "id": row[0], "username": row[1], "ip_address": row[2], 
+            "location": row[3], "created_at": row[4], "role": row[5]
+        })
+        
+    # Get audits
+    cur = db.execute("SELECT timestamp, user, action, ip_address, location FROM audit_logs ORDER BY timestamp DESC LIMIT 50")
+    audits = []
+    for row in cur.fetchall():
+        audits.append({
+            "timestamp": row[0], "user": row[1], "action": row[2],
+            "ip_address": row[3], "location": row[4]
+        })
+
+    return jsonify({
+        "pending": pending,
+        "keys": [
+            {"org_name": "SentraLog HQ (Demo)", "requested_at": get_live_time(), "current_key": "SL-EMG-9942-XCVB"}
+        ],
+        "audits": audits
+    })
 
 @app.route('/api/admin/approve_user', methods=['POST'])
 def approve_user():
-    if session.get('role') != 'Super Admin': return jsonify({'error': 'Unauthorized'}), 403
-    username = request.json.get('username')
+    if 'user_id' not in session or session.get('role') != 'Super Admin':
+        return jsonify({"error": "Forbidden"}), 403
+        
+    data = request.json
+    username = data.get('username')
+    if not username:
+        return jsonify({"error": "Missing username"}), 400
+        
     db = get_db()
-    db.execute("UPDATE users SET status = 'approved' WHERE username = ?", (username,))
+    db.execute("UPDATE users SET status='active' WHERE username=?", (username,))
     db.commit()
-    log_audit(session.get('username'), f"Approved User Registration: {username}", get_client_ip(), get_geoip(get_client_ip()))
-    return jsonify({'status': 'success'})
+    
+    log_admin_action(session.get('username'), f"Approved user registration: {username}", get_client_ip())
+    
+    return jsonify({"status": "success"})
 
 # --- Escalation & Playbooks ---
 @app.route('/api/escalate', methods=['POST'])
