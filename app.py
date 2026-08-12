@@ -439,42 +439,7 @@ def ueba_data():
 
 # --- LIVE IP GRABBER & TRAFFIC ANALYTICS ---
 
-@app.route('/t/<track_id>', methods=['GET'])
-def track_visitor(track_id):
-    # Live IP Grabber Endpoint. Send this link to targets.
-    ip = get_client_ip()
-    user_agent = request.headers.get('User-Agent', 'Unknown')
-    referrer = request.headers.get('Referer', 'no referrer')
-    
-    # Live Lookup using IP-API with extended fields (proxy/vpn detection requires pro for ip-api, 
-    # but we will use the standard fields and check hosting/mobile to infer)
-    # Fields: status,message,country,regionName,city,isp,org,as,mobile,proxy,hosting,query
-    # Since free ip-api doesn't do proxy reliably without a key, we infer from 'hosting'.
-    country, state, city, provider = "Unknown", "Unknown", "Unknown", "Unknown"
-    is_vpn = False
-    
-    if ip != '127.0.0.1' and not ip.startswith('192.168.'):
-        try:
-            res = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,regionName,city,isp,org,mobile,proxy,hosting,query", timeout=3).json()
-            if res.get("status") == "success":
-                country = res.get("country", "Unknown")
-                state = res.get("regionName", "Unknown")
-                city = res.get("city", "Unknown")
-                provider = res.get("isp", "Unknown")
-                if not provider: provider = res.get("org", "Unknown")
-                
-                # If it's a hosting center (AWS, DigitalOcean) or flagged as proxy, likely a VPN
-                if res.get("hosting", False) or res.get("proxy", False):
-                    is_vpn = True
-        except: pass
 
-    db = get_db()
-    db.execute('INSERT INTO traffic_logs (ip_address, provider, country, state, city, user_agent, referring_url, is_vpn, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-               (ip, provider, country, state, city, user_agent, referrer, is_vpn, get_live_time()))
-    db.commit()
-    
-    # Redirect target to a safe decoy page
-    return redirect("https://www.google.com")
 
 @app.route('/api/analytics/traffic', methods=['GET'])
 def get_traffic_logs():
