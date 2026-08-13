@@ -50,7 +50,10 @@ MASTER_PASS = os.environ.get('MASTER_PASSWORD', 'admin')
 VT_API_KEY = os.environ.get('VIRUSTOTAL_API_KEY', '')
 URLSCAN_API_KEY = os.environ.get('URLSCAN_API_KEY', '')
 
-DATABASE = 'sentralog_xdr.db'
+if os.environ.get('VERCEL') or os.environ.get('VERCEL_URL'):
+    DATABASE = '/tmp/sentralog_xdr.db'
+else:
+    DATABASE = 'sentralog_xdr.db'
 
 def get_db():
     db = getattr(g, '_database', None)
