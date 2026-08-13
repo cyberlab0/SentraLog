@@ -235,7 +235,11 @@ def login():
 @limiter.limit("5 per minute")
 def register():
     data = request.json
-    username, password, role = data.get('username'), data.get('password'), data.get('role')
+    username, password, requested_role = data.get('username'), data.get('password'), data.get('role')
+    
+    # Security Fix: Prevent Privilege Escalation (Mass Assignment)
+    # Attackers could pass "Super Admin" as their role in the JSON payload.
+    role = 'SOC1 Analyst' if requested_role == 'Super Admin' else requested_role
     ip = get_client_ip()
     location = get_geoip(ip)
     
